@@ -2,12 +2,31 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const savePdfPageIds = mutation({
+  args: {
+    reportId: v.id("reports"),
+    pageStorageIds: v.array(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.reportId, {
+      pdfPageStorageIds: args.pageStorageIds,
+    });
+  },
+});
+
 export const createReport = mutation({
   args: {
     startupName: v.string(),
     website: v.optional(v.string()),
     linkedinUrl: v.optional(v.string()),
-    pdfBase64: v.optional(v.string()),
+    pdfStorageId: v.optional(v.id("_storage")),
     pdfFileName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -15,7 +34,7 @@ export const createReport = mutation({
       startupName: args.startupName,
       website: args.website,
       linkedinUrl: args.linkedinUrl,
-      pdfBase64: args.pdfBase64,
+      pdfStorageId: args.pdfStorageId,
       pdfFileName: args.pdfFileName,
       status: "pending",
       sections: {},
@@ -26,7 +45,7 @@ export const createReport = mutation({
       startupName: args.startupName,
       website: args.website,
       linkedinUrl: args.linkedinUrl,
-      pdfBase64: args.pdfBase64,
+      pdfStorageId: args.pdfStorageId,
     });
     return reportId;
   },

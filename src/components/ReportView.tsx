@@ -134,84 +134,380 @@ export default function ReportView({
   };
 
   const downloadPdf = async () => {
-    if (!report) return;
     setDownloading(true);
     try {
       const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const pageW = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      const contentW = pageW - margin * 2;
-      let y = 20;
+      const doc = new jsPDF({ 
+        orientation: "portrait", 
+        unit: "mm", 
+        format: "a4" 
+      });
 
-      const addText = (
-        text: string,
-        size: number,
-        bold = false,
-        color: [number, number, number] = [255, 255, 255]
-      ) => {
-        doc.setFontSize(size);
-        doc.setFont("helvetica", bold ? "bold" : "normal");
-        doc.setTextColor(color[0], color[1], color[2]);
-        const lines = doc.splitTextToSize(text, contentW);
-        lines.forEach((line: string) => {
-          if (y > 270) {
-            doc.addPage();
-            y = 20;
-          }
-          doc.text(line, margin, y);
-          y += size * 0.5;
-        });
-        y += 2;
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 18;
+      const contentW = pageW - margin * 2;
+      let y = margin;
+
+      const colors = {
+        bg:           [255, 255, 255] as [number,number,number],
+        primary:      [15,  15,  20 ] as [number,number,number],
+        secondary:    [80,  80,  95 ] as [number,number,number],
+        muted:        [140, 140, 155] as [number,number,number],
+        accent:       [99,  102, 241] as [number,number,number],
+        amber:        [180, 120, 20 ] as [number,number,number],
+        green:        [16,  130, 80 ] as [number,number,number],
+        red:          [200, 60,  60 ] as [number,number,number],
+        purple:       [120, 80,  200] as [number,number,number],
+        yellow:       [160, 120, 10 ] as [number,number,number],
+        divider:      [220, 220, 228] as [number,number,number],
+        tileBgNews:   [235, 250, 242] as [number,number,number],
+        tileBgFounder:[237, 238, 254] as [number,number,number],
+        tileBgComp:   [254, 247, 232] as [number,number,number],
+        tileBgRisk:   [254, 237, 237] as [number,number,number],
+        tileBgTech:   [243, 238, 254] as [number,number,number],
       };
 
-      doc.setFillColor(10, 10, 15);
-      doc.rect(0, 0, pageW, 297, "F");
+      const checkNewPage = (neededHeight: number) => {
+        if (y + neededHeight > pageH - margin) {
+          doc.addPage();
+          y = margin;
+          return true;
+        }
+        return false;
+      };
 
-      addText("LUMEN", 8, true, [99, 102, 241]);
-      addText("Due Diligence Report", 22, true, [255, 255, 255]);
-      addText(report.startupName || "", 16, false, [200, 200, 220]);
-      addText(
-        new Date().toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
+      const drawRect = (
+        rx: number, ry: number, rw: number, rh: number,
+        fillColor: [number,number,number],
+        strokeColor?: [number,number,number],
+        radius = 3
+      ) => {
+        doc.setFillColor(...fillColor);
+        if (strokeColor) {
+          doc.setDrawColor(...strokeColor);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(rx, ry, rw, rh, radius, radius, "FD");
+        } else {
+          doc.setDrawColor(...fillColor);
+          doc.roundedRect(rx, ry, rw, rh, radius, radius, "F");
+        }
+      };
+
+      const writeText = (
+        text: string,
+        size: number,
+        colorArr: [number,number,number],
+        bold = false,
+        xPos = margin,
+        maxWidth = contentW,
+        lineHeightMult = 1.45
+      ): number => {
+        doc.setFontSize(size);
+        doc.setFont("helvetica", bold ? "bold" : "normal");
+        doc.setTextColor(...colorArr);
+        const lines = doc.splitTextToSize(text, maxWidth);
+        const lineH = (size * 0.3528) * lineHeightMult;
+        lines.forEach((line: string) => {
+          checkNewPage(lineH + 2);
+          doc.text(line, xPos, y);
+          y += lineH;
+        });
+        return lines.length * lineH;
+      };
+
+      const addDivider = (colorArr: [number,number,number] = colors.divider) => {
+        checkNewPage(6);
+        doc.setDrawColor(...colorArr);
+        doc.setLineWidth(0.25);
+        doc.line(margin, y, pageW - margin, y);
+        y += 5;
+      };
+
+      doc.setFillColor(...colors.bg);
+      doc.rect(0, 0, pageW, pageH, "F");
+
+      drawRect(0, 0, pageW, 38, colors.accent);
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("LUMEN", margin, 16);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 200, 255);
+      doc.text("Due Diligence Report", margin, 24);
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 230);
+      doc.text(
+        new Date().toLocaleDateString("en-US", { 
+          year: "numeric", month: "long", day: "numeric" 
         }),
-        9,
-        false,
-        [120, 120, 140]
+        pageW - margin,
+        24,
+        { align: "right" }
       );
-      y += 6;
+      y = 46;
 
-      if (report.summary) {
-        addText("ANALYST BRIEF", 8, true, [245, 158, 11]);
-        y += 1;
-        addText(report.summary, 10, false, [220, 220, 235]);
+      doc.setFontSize(20);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doc.text(report?.startupName || "Unnamed Startup", margin, y);
+      y += 9;
+
+      const statusLabel = report?.status === "done" ? "Research Complete" : "In Progress";
+      drawRect(margin, y, 36, 6, colors.accent);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text(statusLabel, margin + 3, y + 4.2);
+      y += 12;
+
+      addDivider();
+
+      if (report?.summary) {
+        checkNewPage(12);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.amber);
+        doc.text("FINAL ANALYST VERDICT", margin, y);
         y += 6;
+
+        const summaryLines = (report.summary as string).split("\n");
+
+        for (const raw of summaryLines) {
+          const line = raw.trim();
+          if (!line) { y += 2; continue; }
+
+          if (line.startsWith("## ")) {
+            checkNewPage(10);
+            y += 3;
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...colors.amber);
+            doc.text(line.replace("## ", "").toUpperCase(), margin, y);
+            y += 5;
+
+          } else if (line.startsWith("- ")) {
+            const content = line.replace("- ", "");
+            const hasWarn = content.includes("⚠️");
+            const hasOk   = content.includes("✓");
+            const dotColor = hasWarn ? colors.red : hasOk ? colors.green : colors.muted;
+            const txtColor = hasWarn ? colors.red : hasOk ? colors.green : colors.secondary;
+
+            checkNewPage(8);
+            doc.setFillColor(...dotColor);
+            doc.circle(margin + 1.5, y - 1.2, 0.9, "F");
+            writeText(content, 8.5, txtColor, false, margin + 5, contentW - 5);
+
+          } else {
+            writeText(line, 8.5, colors.secondary, false, margin, contentW);
+          }
+        }
+        y += 4;
+        addDivider();
       }
 
-      const secObj = report.sections as Record<string, unknown>;
-      for (const section of SECTIONS) {
-        const data = sectionResults(secObj, section.key);
+      if (report?.pdfAnalysis) {
+        checkNewPage(12);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.purple);
+        doc.text("PITCH DECK ANALYSIS", margin, y);
+        y += 6;
+
+        const analysisLines = (report.pdfAnalysis as string).split("\n");
+        for (const raw of analysisLines) {
+          const line = raw.trim();
+          if (!line) { y += 2; continue; }
+
+          if (line.startsWith("## ")) {
+            checkNewPage(10);
+            y += 3;
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...colors.purple);
+            doc.text(line.replace("## ", "").toUpperCase(), margin, y);
+            y += 5;
+          } else if (line.startsWith("- ")) {
+            const content = line.replace("- ", "");
+            const hasWarn = content.includes("⚠️");
+            const hasOk   = content.includes("✓");
+            const hasX    = content.includes("❌");
+            const dotColor = hasWarn ? colors.yellow : hasOk ? colors.green : hasX ? colors.red : colors.muted;
+            const txtColor = hasWarn ? colors.yellow : hasOk ? colors.green : hasX ? colors.red : colors.secondary;
+
+            checkNewPage(8);
+            doc.setFillColor(...dotColor);
+            doc.circle(margin + 1.5, y - 1.2, 0.9, "F");
+            writeText(content, 8.5, txtColor, false, margin + 5, contentW - 5);
+          } else {
+            writeText(line, 8.5, colors.secondary, false, margin, contentW);
+          }
+        }
+        y += 4;
+        addDivider();
+      }
+
+      const SECTION_CONFIG = [
+        { 
+          key: "news", label: "Funding & News", 
+          labelColor: colors.green, 
+          tileColor: colors.tileBgNews,
+          dotColor: colors.green
+        },
+        { 
+          key: "founder", label: "Founder Background", 
+          labelColor: colors.accent, 
+          tileColor: colors.tileBgFounder,
+          dotColor: colors.accent
+        },
+        { 
+          key: "competitors", label: "Competitive Landscape", 
+          labelColor: colors.amber, 
+          tileColor: colors.tileBgComp,
+          dotColor: colors.amber
+        },
+        { 
+          key: "complaints", label: "Red Flags & Complaints", 
+          labelColor: colors.red, 
+          tileColor: colors.tileBgRisk,
+          dotColor: colors.red
+        },
+        { 
+          key: "techSignals", label: "Tech & Hiring Signals", 
+          labelColor: colors.purple, 
+          tileColor: colors.tileBgTech,
+          dotColor: colors.purple
+        },
+      ];
+
+      for (const section of SECTION_CONFIG) {
+        const data = (report?.sections as any)?.[section.key] as any[];
         if (!data?.length) continue;
-        addText(section.label.toUpperCase(), 8, true, [160, 160, 180]);
-        y += 1;
-        data.slice(0, 4).forEach((item) => {
-          addText(item.title, 10, true, [230, 230, 245]);
-          if (item.snippet) addText(item.snippet, 9, false, [160, 160, 180]);
-          y += 2;
+
+        checkNewPage(18);
+
+        drawRect(
+          margin, y, contentW, 9,
+          section.tileColor,
+          section.labelColor
+        );
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...section.labelColor);
+        doc.text(section.label.toUpperCase(), margin + 4, y + 5.8);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.muted);
+        doc.text(
+          `${data.length} source${data.length !== 1 ? "s" : ""}`,
+          pageW - margin - 4,
+          y + 5.8,
+          { align: "right" }
+        );
+        y += 13;
+
+        const itemsToShow = data.slice(0, 5);
+
+        itemsToShow.forEach((item: any, idx: number) => {
+          const title = (item.title || "Untitled")
+            .replace(/https?:\/\/[^\s]+/g, "")
+            .trim()
+            .slice(0, 90);
+
+          const snippet = (item.snippet || "")
+            .replace(/https?:\/\/[^\s]+/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 180);
+
+          const domain = (() => {
+            try {
+              const url = item.url?.startsWith("http") 
+                ? item.url 
+                : "https://" + item.url;
+              return new URL(url).hostname.replace("www.", "");
+            } catch { return ""; }
+          })();
+
+          const dateStr = item.publishedDate?.slice(0, 10) ?? "";
+
+          checkNewPage(22);
+
+          doc.setFillColor(...section.dotColor);
+          doc.circle(margin + 1.5, y + 0.8, 1, "F");
+
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.primary);
+          const titleLines = doc.splitTextToSize(title, contentW - 8);
+          titleLines.slice(0, 2).forEach((tl: string) => {
+            doc.text(tl, margin + 5, y);
+            y += 4.5;
+          });
+
+          if (domain || dateStr) {
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...colors.muted);
+            const meta = [domain, dateStr].filter(Boolean).join("  ·  ");
+            doc.text(meta, margin + 5, y);
+            y += 4;
+          }
+
+          if (snippet) {
+            doc.setFontSize(8.5);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...colors.secondary);
+            const snipLines = doc.splitTextToSize(snippet, contentW - 8);
+            snipLines.slice(0, 3).forEach((sl: string) => {
+              checkNewPage(5);
+              doc.text(sl, margin + 5, y);
+              y += 4.2;
+            });
+          }
+
+          if (idx < itemsToShow.length - 1) {
+            checkNewPage(5);
+            doc.setDrawColor(...colors.divider);
+            doc.setLineWidth(0.2);
+            doc.line(margin + 5, y + 1, pageW - margin, y + 1);
+            y += 5;
+          } else {
+            y += 4;
+          }
         });
+
         y += 4;
       }
 
+      const totalPages = (doc.internal as any).getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFillColor(...colors.bg);
+        doc.rect(0, 0, pageW, margin - 2, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.muted);
+        doc.text(
+          `Lumen · ${report?.startupName || ""} · Page ${p} of ${totalPages}`,
+          pageW / 2,
+          pageH - 8,
+          { align: "center" }
+        );
+      }
+
       doc.save(
-        `lumen-${report.startupName?.replace(/\s+/g, "-").toLowerCase() || "report"}.pdf`
+        `lumen-${(report?.startupName || "report")
+          .replace(/\s+/g, "-")
+          .toLowerCase()}.pdf`
       );
+
     } catch (e) {
-      console.error(e);
-    } finally {
-      setDownloading(false);
+      console.error("PDF export error:", e);
+      alert("PDF export failed. Please try again.");
     }
+    setDownloading(false);
   };
 
   if (!report)

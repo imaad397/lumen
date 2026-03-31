@@ -6,8 +6,9 @@ export default defineSchema({
     startupName: v.string(),
     website: v.optional(v.string()),
     linkedinUrl: v.optional(v.string()),
-    pdfBase64: v.optional(v.string()),
+    pdfStorageId: v.optional(v.id("_storage")),
     pdfFileName: v.optional(v.string()),
+    pdfPageStorageIds: v.optional(v.array(v.id("_storage"))),
     pdfAnalysis: v.optional(v.string()),
     status: v.union(
       v.literal("pending"),

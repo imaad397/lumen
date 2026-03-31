@@ -19,17 +19,21 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const createReport = useMutation(api.reports.createReport);
 
-  const handleSubmit = async (data: {
-    startupName: string;
-    website?: string;
-    linkedinUrl?: string;
-    pdfBase64?: string;
-    pdfFileName?: string;
-  }) => {
+  const handleSubmit = async (
+    data: {
+      startupName: string;
+      website?: string;
+      linkedinUrl?: string;
+      pdfStorageId?: string;
+      pdfFileName?: string;
+    },
+    onReportCreated?: (id: string) => void
+  ) => {
     setLoading(true);
-    const id = await createReport(data);
+    const id = await createReport(data as any);
     setReportId(id);
     window.history.pushState({}, "", `?report=${id}`);
+    if (onReportCreated) onReportCreated(id);
     setLoading(false);
   };
 

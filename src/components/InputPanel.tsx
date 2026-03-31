@@ -1,28 +1,37 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { renderPdfToImages } from "../utils/pdfRenderer";
 import type { LucideIcon } from "lucide-react";
 import { Search, Link, FileText, Upload, X, ArrowRight, Loader2 } from "lucide-react";
 
 type Mode = "name" | "url" | "pdf";
 
 interface Props {
-  onSubmit: (data: {
-    startupName: string;
-    website?: string;
-    linkedinUrl?: string;
-    pdfBase64?: string;
-    pdfFileName?: string;
-  }) => void | Promise<void>;
+  onSubmit: (
+    data: {
+      startupName: string;
+      website?: string;
+      linkedinUrl?: string;
+      pdfStorageId?: string;
+      pdfFileName?: string;
+    },
+    onReportCreated?: (id: string) => void
+  ) => void;
   loading: boolean;
 }
 
 export default function InputPanel({ onSubmit, loading }: Props) {
+  const generateUploadUrl = useMutation(api.reports.generateUploadUrl);
+  const savePdfPageIds = useMutation(api.reports.savePdfPageIds);
   const [mode, setMode] = useState<Mode>("name");
   const [startupName, setStartupName] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfName, setPdfName] = useState("");
+  const [uploadStatus, setUploadStatus] = useState("");
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -43,23 +52,84 @@ export default function InputPanel({ onSubmit, loading }: Props) {
 
     if (mode === "name") {
       if (!startupName.trim()) return;
-      await onSubmit({ startupName: startupName.trim() });
-    } else if (mode === "url") {
+      onSubmit({ startupName: startupName.trim() });
+      return;
+    }
+
+    if (mode === "url") {
       if (!urlInput.trim()) return;
       const isLinkedin = urlInput.includes("linkedin.com");
-      await onSubmit({
+      onSubmit({
         startupName: extractNameFromUrl(urlInput),
         website: isLinkedin ? undefined : urlInput,
         linkedinUrl: isLinkedin ? urlInput : undefined,
       });
-    } else if (mode === "pdf") {
+      return;
+    }
+
+    if (mode === "pdf") {
       if (!pdfFile) return;
-      const base64 = await fileToBase64(pdfFile);
-      await onSubmit({
-        startupName: pdfName || pdfFile.name.replace(".pdf", ""),
-        pdfBase64: base64,
-        pdfFileName: pdfFile.name,
-      });
+
+      try {
+        setUploadStatus("Rendering PDF pages...");
+
+        const pageImages = await renderPdfToImages(pdfFile, 15);
+
+        if (pageImages.length === 0) {
+          alert("Could not read any pages from this PDF. Please try a different file.");
+          setUploadStatus("");
+          return;
+        }
+
+        setUploadStatus(`Uploading ${pageImages.length} pages...`);
+
+        const uploadPageImage = async (base64: string): Promise<string> => {
+          const blob = await fetch(`data:image/jpeg;base64,${base64}`).then(r => r.blob());
+          const uploadUrl = await generateUploadUrl();
+          const response = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": "image/jpeg" },
+            body: blob,
+          });
+          if (!response.ok) throw new Error("Page upload failed");
+          const { storageId } = await response.json();
+          return storageId;
+        };
+
+        const pageStorageIds: string[] = [];
+        for (let i = 0; i < pageImages.length; i++) {
+          setUploadStatus(`Uploading page ${i + 1} of ${pageImages.length}...`);
+          const storageId = await uploadPageImage(pageImages[i]);
+          pageStorageIds.push(storageId);
+        }
+
+        setUploadStatus("Starting analysis...");
+
+        const reportId = await new Promise<string>((resolve) => {
+          onSubmit(
+            {
+              startupName: pdfName.trim() || pdfFile.name.replace(".pdf", ""),
+              pdfFileName: pdfFile.name,
+              pdfStorageId: pageStorageIds[0],
+            },
+            resolve
+          );
+        });
+
+        if (reportId) {
+          await savePdfPageIds({
+            reportId: reportId as any,
+            pageStorageIds: pageStorageIds as any,
+          });
+        }
+
+        setUploadStatus("");
+
+      } catch (err) {
+        console.error("PDF processing error:", err);
+        alert("Failed to process PDF. Please try again.");
+        setUploadStatus("");
+      }
     }
   };
 
@@ -176,6 +246,13 @@ export default function InputPanel({ onSubmit, loading }: Props) {
             )}
           </AnimatePresence>
 
+          {uploadStatus && (
+            <div className="flex items-center gap-2 text-xs text-indigo-400 mb-2">
+              <span className="animate-pulse">●</span>
+              {uploadStatus}
+            </div>
+          )}
+
           <motion.button
             type="button"
             onClick={() => void handleSubmit()}
@@ -216,17 +293,4 @@ function extractNameFromUrl(url: string): string {
   } catch {
     return url;
   }
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const i = result.indexOf(",");
-      resolve(i >= 0 ? result.slice(i + 1) : result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }

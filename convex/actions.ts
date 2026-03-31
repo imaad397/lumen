@@ -2,6 +2,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import Exa from "exa-js";
 import Groq from "groq-sdk";
 
@@ -20,11 +21,11 @@ export const runDiligence = action({
     startupName: v.string(),
     website: v.optional(v.string()),
     linkedinUrl: v.optional(v.string()),
-    pdfBase64: v.optional(v.string()),
+    pdfStorageId: v.optional(v.id("_storage")),
   },
   handler: async (
     ctx,
-    { reportId, startupName, website, linkedinUrl, pdfBase64 }
+    { reportId, startupName, website, linkedinUrl, pdfStorageId }
   ) => {
     const exa = new Exa(process.env.EXA_API_KEY!);
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
@@ -45,21 +46,69 @@ export const runDiligence = action({
     let pdfText = "";
     let pdfAnalysis = "";
 
-    if (pdfBase64) {
+    if (pdfStorageId) {
       try {
-        const { PDFParse } = await import("pdf-parse");
-        const buffer = Buffer.from(pdfBase64, "base64");
-        const parser = new PDFParse({ data: buffer });
-        const parsed = await parser.getText();
-        pdfText = parsed.text.slice(0, 6000);
-        await parser.destroy();
+        const report = await ctx.runQuery(api.reports.getReport, { reportId });
+        const pageIds: Id<"_storage">[] =
+          (report?.pdfPageStorageIds as Id<"_storage">[] | undefined) ??
+          [pdfStorageId];
 
-        const pdfCompletion = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert VC analyst reviewing a pitch deck. Extract and structure everything using bullet points only — no paragraphs:
+        const pageTexts: string[] = [];
+
+        for (let i = 0; i < pageIds.length; i++) {
+          try {
+            const imageBlob = await ctx.storage.get(pageIds[i]);
+            if (!imageBlob) continue;
+
+            const arrayBuffer = await imageBlob.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString("base64");
+            const mimeType = imageBlob.type || "image/jpeg";
+
+            const response = await groq.chat.completions.create({
+              model: "meta-llama/llama-4-scout-17b-16e-instruct",
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:${mimeType};base64,${base64}`,
+                      },
+                    },
+                    {
+                      type: "text",
+                      text: `This is page ${i + 1} of a startup pitch deck for "${startupName}". Extract ALL visible text exactly as written — headings, bullets, numbers, metrics, labels. Do not summarize. Transcribe everything readable on this slide.`,
+                    },
+                  ],
+                },
+              ],
+              max_tokens: 1024,
+            });
+
+            const pageText = response.choices[0]?.message?.content ?? "";
+            if (pageText.trim()) {
+              pageTexts.push(`--- Slide ${i + 1} ---\n${pageText}`);
+            }
+          } catch (pageErr) {
+            console.error(`Slide ${i + 1} vision error:`, pageErr);
+            continue;
+          }
+        }
+
+        pdfText = pageTexts.join("\n\n").slice(0, 8000);
+
+        if (!pdfText || pdfText.trim().length < 30) {
+          pdfAnalysis = "Could not extract readable content from the uploaded slides.";
+        } else {
+          const pdfCompletion = await groq.chat.completions.create({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              {
+                role: "system",
+                content: `You are an expert venture capital analyst reviewing a startup pitch deck.
+The content below was OCR-extracted from pitch deck slides using vision AI.
+Analyze and structure everything using bullet points only — no paragraphs.
 
 ## Problem & Solution
 - Problem being solved
@@ -78,12 +127,12 @@ export const runDiligence = action({
 
 ## Traction
 - Revenue or ARR if mentioned
-- User/customer numbers
+- User or customer numbers
 - Growth rate claimed
 - Key partnerships or logos
 
 ## Team
-- Founders listed and their backgrounds
+- Founders and their backgrounds
 - Key hires mentioned
 - Advisors mentioned
 
@@ -97,24 +146,37 @@ export const runDiligence = action({
 - Use of funds breakdown
 - Valuation if mentioned
 
-## Fact-Check Against Web Research
-- Claims that are verified by online sources
-- Claims that could not be verified
-- Claims that contradict what was found online
+## Fact-Check Notes
+- Claims that look verifiable online ✓
+- Claims that seem aggressive or unverifiable ⚠️
+- Anything suspiciously missing from the deck ❌
 
-Use short one-line bullets only. Mark unverified claims with ⚠️ and verified ones with ✓`,
-            },
-            { role: "user", content: `Pitch deck content:\n\n${pdfText}` },
-          ],
-          max_tokens: 800,
-        });
-        pdfAnalysis = pdfCompletion.choices[0].message.content ?? "";
+Use short one-line bullets only.`,
+              },
+              {
+                role: "user",
+                content: `Startup: ${startupName}\n\nSlide content:\n\n${pdfText}`,
+              },
+            ],
+            max_tokens: 900,
+          });
+
+          pdfAnalysis = pdfCompletion.choices[0].message.content ?? "";
+        }
+
         await ctx.runMutation(api.reports.patchReport, {
           reportId,
           patch: { pdfAnalysis },
         });
       } catch (e) {
-        console.error("PDF parse error:", e);
+        console.error("PDF vision processing error:", e);
+        await ctx.runMutation(api.reports.patchReport, {
+          reportId,
+          patch: {
+            pdfAnalysis:
+              "PDF processing failed. Please ensure the file is not password-protected and try again.",
+          },
+        });
       }
     }
 
