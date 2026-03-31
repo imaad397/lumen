@@ -11,7 +11,7 @@ structured analyst-grade brief in under 60 seconds.
 Built in one night for a hackathon by a first-year CS student
 using Cursor, Convex, Exa, and Groq.
 
-**Live demo →** https://your-vercel-url.vercel.app
+**Live demo →** https://lumencs.vercel.app/
 
 ---
 
