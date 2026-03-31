@@ -18,6 +18,7 @@ export default function App() {
   );
   const [loading, setLoading] = useState(false);
   const createReport = useMutation(api.reports.createReport);
+  type CreateReportArgs = Parameters<typeof createReport>[0];
 
   const handleSubmit = async (
     data: {
@@ -27,14 +28,29 @@ export default function App() {
       pdfStorageId?: string;
       pdfFileName?: string;
     },
-    onReportCreated?: (id: string) => void
+    onReportCreated?: (id: Id<"reports">) => void
   ) => {
     setLoading(true);
-    const id = await createReport(data as any);
-    setReportId(id);
-    window.history.pushState({}, "", `?report=${id}`);
-    if (onReportCreated) onReportCreated(id);
-    setLoading(false);
+    try {
+      const args: CreateReportArgs = {
+        startupName: data.startupName,
+        website: data.website,
+        linkedinUrl: data.linkedinUrl,
+        pdfStorageId: data.pdfStorageId as unknown as Id<"_storage"> | undefined,
+        pdfFileName: data.pdfFileName,
+      };
+      const id = await createReport(args);
+      setReportId(id);
+      window.history.pushState({}, "", `?report=${id}`);
+      if (onReportCreated) onReportCreated(id);
+    } catch (e) {
+      console.error("createReport failed:", e);
+      alert(
+        "Could not start research. Please check your internet connection and that VITE_CONVEX_URL is configured correctly."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

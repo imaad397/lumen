@@ -4,6 +4,7 @@ import { useDropzone } from "react-dropzone";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { renderPdfToImages } from "../utils/pdfRenderer";
+import type { Id } from "../../convex/_generated/dataModel";
 import type { LucideIcon } from "lucide-react";
 import { Search, Link, FileText, Upload, X, ArrowRight, Loader2 } from "lucide-react";
 
@@ -18,8 +19,8 @@ interface Props {
       pdfStorageId?: string;
       pdfFileName?: string;
     },
-    onReportCreated?: (id: string) => void
-  ) => void;
+    onReportCreated?: (id: Id<"reports">) => void
+  ) => void | Promise<void>;
   loading: boolean;
 }
 
@@ -52,18 +53,28 @@ export default function InputPanel({ onSubmit, loading }: Props) {
 
     if (mode === "name") {
       if (!startupName.trim()) return;
-      onSubmit({ startupName: startupName.trim() });
+      try {
+        onSubmit({ startupName: startupName.trim() });
+      } catch (e) {
+        console.error("Name submit error:", e);
+        alert("Failed to start research. Please try again.");
+      }
       return;
     }
 
     if (mode === "url") {
       if (!urlInput.trim()) return;
       const isLinkedin = urlInput.includes("linkedin.com");
-      onSubmit({
-        startupName: extractNameFromUrl(urlInput),
-        website: isLinkedin ? undefined : urlInput,
-        linkedinUrl: isLinkedin ? urlInput : undefined,
-      });
+      try {
+        onSubmit({
+          startupName: extractNameFromUrl(urlInput),
+          website: isLinkedin ? undefined : urlInput,
+          linkedinUrl: isLinkedin ? urlInput : undefined,
+        });
+      } catch (e) {
+        console.error("URL submit error:", e);
+        alert("Failed to start research. Please try again.");
+      }
       return;
     }
 
@@ -83,7 +94,7 @@ export default function InputPanel({ onSubmit, loading }: Props) {
 
         setUploadStatus(`Uploading ${pageImages.length} pages...`);
 
-        const uploadPageImage = async (base64: string): Promise<string> => {
+        const uploadPageImage = async (base64: string): Promise<Id<"_storage">> => {
           const blob = await fetch(`data:image/jpeg;base64,${base64}`).then(r => r.blob());
           const uploadUrl = await generateUploadUrl();
           const response = await fetch(uploadUrl, {
@@ -92,11 +103,11 @@ export default function InputPanel({ onSubmit, loading }: Props) {
             body: blob,
           });
           if (!response.ok) throw new Error("Page upload failed");
-          const { storageId } = await response.json();
+          const { storageId } = (await response.json()) as { storageId: Id<"_storage"> };
           return storageId;
         };
 
-        const pageStorageIds: string[] = [];
+        const pageStorageIds: Id<"_storage">[] = [];
         for (let i = 0; i < pageImages.length; i++) {
           setUploadStatus(`Uploading page ${i + 1} of ${pageImages.length}...`);
           const storageId = await uploadPageImage(pageImages[i]);
@@ -105,23 +116,26 @@ export default function InputPanel({ onSubmit, loading }: Props) {
 
         setUploadStatus("Starting analysis...");
 
-        const reportId = await new Promise<string>((resolve) => {
-          onSubmit(
-            {
-              startupName: pdfName.trim() || pdfFile.name.replace(".pdf", ""),
-              pdfFileName: pdfFile.name,
-              pdfStorageId: pageStorageIds[0],
-            },
-            resolve
-          );
+        const reportId = await new Promise<Id<"reports">>((resolve) => {
+          try {
+            onSubmit(
+              {
+                startupName: pdfName.trim() || pdfFile.name.replace(".pdf", ""),
+                pdfFileName: pdfFile.name,
+                pdfStorageId: pageStorageIds[0] as unknown as string,
+              },
+              resolve
+            );
+          } catch (e) {
+            console.error("Submit error:", e);
+            resolve("" as unknown as Id<"reports">);
+          }
         });
 
-        if (reportId) {
-          await savePdfPageIds({
-            reportId: reportId as any,
-            pageStorageIds: pageStorageIds as any,
-          });
-        }
+        await savePdfPageIds({
+          reportId,
+          pageStorageIds,
+        });
 
         setUploadStatus("");
 

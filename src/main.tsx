@@ -4,7 +4,13 @@ import { ConvexProvider, ConvexReactClient } from "convex/react";
 import App from "./App";
 import "./index.css";
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
+if (!convexUrl) {
+  console.error(
+    "Missing VITE_CONVEX_URL. Set it in .env.local for local dev, or in Vercel env vars for production."
+  );
+}
+const convex = new ConvexReactClient(convexUrl ?? "");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

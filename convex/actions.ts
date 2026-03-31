@@ -48,9 +48,11 @@ export const runDiligence = action({
 
     if (pdfStorageId) {
       try {
-        const report = await ctx.runQuery(api.reports.getReport, { reportId });
+        const report = await ctx.runQuery(api.reports.getReport, {
+          reportId,
+        });
         const pageIds: Id<"_storage">[] =
-          (report?.pdfPageStorageIds as Id<"_storage">[] | undefined) ??
+          (report?.pdfPageStorageIds as unknown as Id<"_storage">[] | undefined) ??
           [pdfStorageId];
 
         const pageTexts: string[] = [];
@@ -78,7 +80,7 @@ export const runDiligence = action({
                     },
                     {
                       type: "text",
-                      text: `This is page ${i + 1} of a startup pitch deck for "${startupName}". Extract ALL visible text exactly as written — headings, bullets, numbers, metrics, labels. Do not summarize. Transcribe everything readable on this slide.`,
+                      text: `This is slide ${i + 1} of a startup pitch deck for "${startupName}". Extract ALL visible text exactly as written — headings, bullets, numbers, metrics, labels. Do not summarize. Transcribe everything readable on this slide.`,
                     },
                   ],
                 },
@@ -86,7 +88,8 @@ export const runDiligence = action({
               max_tokens: 1024,
             });
 
-            const pageText = response.choices[0]?.message?.content ?? "";
+            const pageText = 
+              response.choices[0]?.message?.content ?? "";
             if (pageText.trim()) {
               pageTexts.push(`--- Slide ${i + 1} ---\n${pageText}`);
             }
@@ -99,7 +102,8 @@ export const runDiligence = action({
         pdfText = pageTexts.join("\n\n").slice(0, 8000);
 
         if (!pdfText || pdfText.trim().length < 30) {
-          pdfAnalysis = "Could not extract readable content from the uploaded slides.";
+          pdfAnalysis = 
+            "Could not extract readable content from the uploaded slides.";
         } else {
           const pdfCompletion = await groq.chat.completions.create({
             model: "llama-3.3-70b-versatile",
@@ -161,19 +165,21 @@ Use short one-line bullets only.`,
             max_tokens: 900,
           });
 
-          pdfAnalysis = pdfCompletion.choices[0].message.content ?? "";
+          pdfAnalysis = 
+            pdfCompletion.choices[0].message.content ?? "";
         }
 
         await ctx.runMutation(api.reports.patchReport, {
           reportId,
           patch: { pdfAnalysis },
         });
+
       } catch (e) {
         console.error("PDF vision processing error:", e);
         await ctx.runMutation(api.reports.patchReport, {
           reportId,
           patch: {
-            pdfAnalysis:
+            pdfAnalysis: 
               "PDF processing failed. Please ensure the file is not password-protected and try again.",
           },
         });
@@ -280,12 +286,14 @@ Use short one-line bullets only.`,
       ? `\n\nPITCH DECK TEXT (first 2000 chars):\n${pdfText.slice(0, 2000)}`
       : "";
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content: `You are a senior venture capital analyst writing a final investment brief. 
+    let summary = "";
+    try {
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are a senior venture capital analyst writing a final investment brief. 
 You have already reviewed all research sections above. Your job is to synthesize everything 
 into a final verdict brief that ONLY references things actually found in the provided sources.
 
@@ -326,20 +334,32 @@ ${pdfText ? "- Compare pitch deck claims against web sources and flag discrepanc
 - Signal: [Strong / Neutral / Cautious / Insufficient Data]
 - Reason: [one line grounded in sources]
 - Before investing, verify: [top 3 specific things]`,
-        },
-        {
-          role: "user",
-          content: `Startup: ${startupName}${pitchContext}\n\nAll research sources:\n${groundedContext}`,
-        },
-      ],
-      max_tokens: 900,
-    });
+          },
+          {
+            role: "user",
+            content: `Startup: ${startupName}${pitchContext}\n\nAll research sources:\n${groundedContext}`,
+          },
+        ],
+        max_tokens: 900,
+      });
+      summary = completion.choices[0].message.content ?? "";
+    } catch (e) {
+      // Common failure mode: Groq rate limits. Don't leave the report stuck in "running".
+      console.error("Summary generation error:", e);
+      summary =
+        "Summary generation failed due to a temporary AI provider error (often rate limiting). Please retry in a minute.";
+      await ctx.runMutation(api.reports.patchReport, {
+        reportId,
+        patch: { status: "error", summary },
+      });
+      return;
+    }
 
     await ctx.runMutation(api.reports.patchReport, {
       reportId,
       patch: {
         status: "done",
-        summary: completion.choices[0].message.content ?? "",
+        summary,
       },
     });
   },

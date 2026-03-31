@@ -381,8 +381,20 @@ export default function ReportView({
         },
       ];
 
+      type SourceItem = {
+        title?: string;
+        url?: string;
+        publishedDate?: string;
+        snippet?: string;
+      };
+
       for (const section of SECTION_CONFIG) {
-        const data = (report?.sections as any)?.[section.key] as any[];
+        const sectionsRecord = report?.sections as unknown as Record<
+          string,
+          unknown
+        >;
+        const raw = sectionsRecord?.[section.key];
+        const data: SourceItem[] = Array.isArray(raw) ? (raw as SourceItem[]) : [];
         if (!data?.length) continue;
 
         checkNewPage(18);
@@ -409,7 +421,7 @@ export default function ReportView({
 
         const itemsToShow = data.slice(0, 5);
 
-        itemsToShow.forEach((item: any, idx: number) => {
+        itemsToShow.forEach((item: SourceItem, idx: number) => {
           const title = (item.title || "Untitled")
             .replace(/https?:\/\/[^\s]+/g, "")
             .trim()
@@ -481,7 +493,9 @@ export default function ReportView({
         y += 4;
       }
 
-      const totalPages = (doc.internal as any).getNumberOfPages();
+      const totalPages = (
+        doc.internal as unknown as { getNumberOfPages: () => number }
+      ).getNumberOfPages();
       for (let p = 1; p <= totalPages; p++) {
         doc.setPage(p);
         doc.setFillColor(...colors.bg);

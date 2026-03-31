@@ -27,12 +27,17 @@ export async function renderPdfToImages(
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
-      // Ensure the backing store is created before rendering.
-      canvas.getContext("2d")!;
+      const context = canvas.getContext("2d")!;
 
-      await page.render({ canvas, viewport }).promise;
+      await page.render({ 
+        canvas,
+        canvasContext: context, 
+        viewport 
+      }).promise;
 
-      const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      const base64 = canvas
+        .toDataURL("image/jpeg", 0.85)
+        .split(",")[1];
       images.push(base64);
     } catch (e) {
       console.error(`Failed to render page ${pageNum}:`, e);
